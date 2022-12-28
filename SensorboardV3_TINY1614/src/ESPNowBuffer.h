@@ -5,29 +5,37 @@
 
 #define ESPNOW_BUFFER_MAX 250
 
-#define ESPNOW_BUFFER_CHECKSUM_BYTES 1 // Max 4 bytes
-
 class ESPNowBuffer
 {
 public:
-    // ESPNowBuffer(const uint8_t *incomingData, int dataCount);
-    // ESPNowBuffer(uint16_t dataCount);
-
-    void setDataAmount(int len); //Set amount of byte to send. Checksum is set apart.
+    // This does not include the checksum (It is added by the function)
+    void clear();
     void copyData(const uint8_t *data, int len);
 
-    uint32_t calculateChecksum();
-    void createAndSetChecksum();
-    uint32_t getChecksum();
+    uint8_t updateChecksum();
+    uint8_t createChecksum();
+    uint8_t getChecksum();
     bool isChecksumValid();
 
     uint8_t getByte(uint16_t index);
     uint16_t getWord(uint16_t index);
     uint32_t getDWord(uint16_t index);
+    uint8_t *getData(uint8_t offset, uint8_t len);
 
     void setByte(uint16_t index, uint8_t data);
     void setWord(uint16_t index, uint16_t data);
     void setDWord(uint16_t index, uint32_t data);
+    void setData(uint8_t *data, uint8_t offset, uint8_t dataLen);
+
+    void addByte(uint8_t data);
+    void addWord(uint16_t data);
+    void addDWord(uint32_t data);
+    void addData(uint8_t *data, uint8_t dataLen);
+
+    void setLen(uint16_t len)
+    {
+        _len = len;
+    }
 
     uint16_t getLen()
     {
@@ -54,7 +62,7 @@ public:
         return _buffer[i];
     }
 
-    uint8_t& operator[](int i)
+    uint8_t &operator[](int i)
     {
         return _buffer[i];
     }
@@ -64,6 +72,8 @@ private:
     int _len;
 
     bool _inUse;
+
+    bool _checksumAdded = false;
 };
 
 #endif
