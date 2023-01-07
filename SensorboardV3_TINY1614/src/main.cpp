@@ -9,10 +9,14 @@
 #include <ESPNowMessages.h>
 #include <ESPNowBuffer.h>
 
-#define TIME_MINUTE_SENDS            5      // Minutes between times (Not precise, maybe +-30s)
-#define TIME_HOURS_LOW_BATTERY_SENDS 12     //Hours between sleeps when low battery is detected
-#define TEMPERATURE_DIFF             0.25   // Temperature difference to send values to ESP
-#define HUMIDITY_DIFF                1.35   // Temperature difference to send values to ESP
+#define TIME_MINUTE_SENDS 5             // Minutes between times (Not precise, maybe +-30s)
+#define TIME_HOURS_LOW_BATTERY_SENDS 12 // Hours between sleeps when low battery is detected
+
+#define TEMPERATURE_MIN_DIFF 0.2 // Temperature difference to send values to ESP
+#define HUMIDITY_MIN_DIFF 1.35   // Temperature difference to send values to ESP
+
+#define SHT31_READING_TRIALS 3
+#define ESP32_READING_TRIALS 3
 
 #define SDA_PIN PIN_PB1
 #define SCL_PIN PIN_PB0
@@ -29,7 +33,6 @@
 #define BATT_VOLT_CAPACITOR_DISCHARGE_TIME 50 // Milliseconds for the capacitor di to dischard to reach battery divider voltage
 #define BATT_VOLT_ADC_GND_PIN PIN_PA5
 
-
 #define SHT31_RST_PIN PIN_PA4
 
 // Divide the voltage measured by the ADC0 Percentage result.
@@ -45,7 +48,6 @@
 SHT31 sht31;
 float batteryADC0FullScale = 1.0;
 
-SensorboardV2Message message;
 ESPNowBuffer recvESPNowBuffer;
 
 void setup()
@@ -134,7 +136,7 @@ void sleep(bool lowBatterySleep)
 
   // 1 cycles is around 32seconds
   // 10 = ~5 minute sleep
-  //uint16_t sleepCycles = 5;
+  // uint16_t sleepCycles = 5;
   uint16_t sleepCycles = (TIME_MINUTE_SENDS * 60) / 32;
   if (lowBatterySleep)
   {
@@ -166,11 +168,11 @@ void sleep(bool lowBatterySleep)
 #endif
 }
 
-SHT31Reading readSensor()
+SHT31Reading readSensorData()
 {
 #ifdef DEBUG
-  Serial.println("SHT31 - Read Data.");
-#endif;
+  Serial.println("SHT31 - Start reading");
+#endif
 
   SHT31Reading sensorData = sht31.readBoth();
 
@@ -189,6 +191,27 @@ SHT31Reading readSensor()
 #endif
 
   return sensorData;
+}
+
+float lastTemp;
+float lastHum;
+bool validateSensorData(SHT31Reading sensorData, bool force)
+{
+  bool enoughDiff = fabs(sensorData.temperature - lastTemp) > TEMPERATURE_MIN_DIFF || fabs(sensorData.humidity - lastHum) > HUMIDITY_MIN_DIFF;
+  if (enoughDiff || force)
+  {
+#ifdef DEBUG
+    Serial.println("Validate - OK");
+#endif
+    lastTemp = sensorData.temperature;
+    lastHum = sensorData.humidity;
+    return true;
+  }
+
+#ifdef DEBUG
+  Serial.println("Validate - Not enough difference");
+#endif
+  return false;
 }
 
 /*
@@ -368,8 +391,7 @@ bool waitESPRDYImpulses(uint32_t timeoutTime)
   return true;
 }
 
-// Dati => T=4 + RH=1 + BVolt=4 + Checksum=1 Tot=10 Bytes
-bool ESPSend(SHT31Reading sensorData, float batteryVoltage, bool charging)
+bool ESPSend()
 {
 #ifdef DEBUG
   Serial.println("ESPSend - Wake ESP");
@@ -378,17 +400,6 @@ bool ESPSend(SHT31Reading sensorData, float batteryVoltage, bool charging)
   digitalWrite(ESP_RESET_PIN, HIGH);
   delay(1);
   digitalWrite(ESP_RESET_PIN, LOW);
-
-  message.temperature = sensorData.temperature;
-  message.humidity = (uint8_t)sensorData.humidity;
-  message.batteryVoltage = batteryVoltage;
-  message.charging = charging;
-
-  recvESPNowBuffer.clear();
-
-  message.writeData(&recvESPNowBuffer);
-  recvESPNowBuffer.updateChecksum();
-  recvESPNowBuffer.setInUse(true);
 
   delay(50); // The ESP32-C3 seems to have ~200ms of bootup time where pins are not reliable. So i wait a bit before waiting.
 
@@ -404,7 +415,7 @@ bool ESPSend(SHT31Reading sensorData, float batteryVoltage, bool charging)
     }
   }
 
-  delay(10); // Wait some time before sending data.
+  delay(5); // Wait some time before sending data.
   for (int x = 0; x < recvESPNowBuffer.getLen(); x++)
   {
     Serial.write(recvESPNowBuffer[x]);
@@ -416,7 +427,7 @@ bool ESPSend(SHT31Reading sensorData, float batteryVoltage, bool charging)
   }
   Serial.flush();
 
-  if (!waitESPRDYImpulses(500)) // Wait for the ESP to send me impulses to indicate serial reading OK
+  if (!waitESPRDYImpulses(150)) // Wait for the ESP to send me impulses to indicate serial reading OK
   {
 #ifdef DEBUG
     Serial.println("ESPSend - Serial failed");
@@ -424,7 +435,7 @@ bool ESPSend(SHT31Reading sensorData, float batteryVoltage, bool charging)
     return false;
   }
 
-  if (!waitESPRDYImpulses(4500))
+  if (!waitESPRDYImpulses(1000))
   {
 #ifdef DEBUG
     Serial.println("ESPSend - ESPNow fail");
@@ -448,14 +459,40 @@ uint32_t usbPluggedTimestamp = 0;
 uint32_t espProgTimestamp = 0;
 bool espProgrammingMode = false;
 
-float lastTemp;
-float lastHum;
-
 bool lowBatterySent = false;
 
 bool isCharging()
 {
   return digitalRead(USB_IN_PIN);
+}
+
+SensorboardV2Message message;
+bool prepareESPNowBuffer(float temperature, float humidity, float batteryVoltage)
+{
+  message.temperature = temperature;
+  message.humidity = lround(ceil(humidity));
+  message.batteryVoltage = batteryVoltage;
+  message.charging = isCharging();
+
+#ifdef DEBUG
+  message.printDebug(&Serial);
+#endif
+
+  if (message.sanityCheck())
+  {
+#ifdef DEBUG
+    Serial.println("ESPNowBuffer - Sanity Check OK");
+#endif
+    recvESPNowBuffer.clear();
+    message.writeData(&recvESPNowBuffer);
+    recvESPNowBuffer.updateChecksum();
+    return true;
+  }
+
+#ifdef DEBUG
+  Serial.println("ESPNowBuffer - Sanity Check FAIL");
+#endif
+  return false;
 }
 
 void loop()
@@ -546,7 +583,7 @@ void loop()
     }
 
     // Once the programming is active, i wait for the esp to put the ready pin low (Meaning is has been woke up after programming).
-    if (!digitalRead(ESP_READY_PIN))
+    if (espProgrammingMode && !digitalRead(ESP_READY_PIN))
     {
       Serial.println("ESPProg - Programming mode disabled.");
       espProgrammingMode = false;
@@ -559,7 +596,7 @@ void loop()
   }
   else
   {
-    //If is not charging, disable all this calibration stuff to avoid any issue.
+    // If is not charging, disable all this calibration stuff to avoid any issue.
     espProgrammingMode = false;
     stopReadContinously = false;
     batteryCalibration = false;
@@ -578,8 +615,8 @@ void loop()
   {
     if (!lowBatterySent)
     {
-      SHT31Reading emptyReadings;
-      if (ESPSend(emptyReadings, 10.0, false))
+      prepareESPNowBuffer(0.0, 0.0, batteryVoltage);
+      if (ESPSend())
       {
         lowBatterySent = true;
       }
@@ -590,42 +627,34 @@ void loop()
   }
 
   lowBatterySent = false;
-
   // If i am updating the battery factor, i do not want all the stuff for the ESP or the sensor.
-  SHT31Reading sensorData = readSensor();
-  if (sensorData.valid)
+  SHT31Reading sensorData = readSensorData();
+  if (sensorData.valid && validateSensorData(sensorData, isCharging()) && prepareESPNowBuffer(sensorData.temperature, sensorData.humidity, batteryVoltage))
   {
-    bool enoughDiff = fabs(sensorData.temperature - lastTemp) > TEMPERATURE_DIFF || fabs(sensorData.humidity - lastHum) > HUMIDITY_DIFF;
-    if (isCharging() || enoughDiff)
-    {
-      lastTemp = sensorData.temperature;
-      lastHum = sensorData.humidity;
 #ifdef DEBUG_TIME
-      uint32_t espTimeTaken = millis();
+    uint32_t espTimeTaken = millis();
 #endif
-      for (int x = 0; x < 3; x++)
+    for (int x = 0; x < ESP32_READING_TRIALS; x++)
+    {
+      if (isCharging() && !digitalRead(ESP_PROG_PIN))
       {
-        if (isCharging() && !digitalRead(ESP_PROG_PIN))
-        {
-          Serial.println("Stopping ESPSend for programming.");
-          return;
-        }
-#ifdef DEBUG
-        Serial.printf("ESPSend - Start try #%d \n", x);
-#endif
-        if (ESPSend(sensorData, batteryVoltage, isCharging()))
-        {
-          break;
-        }
+        Serial.println("Stopping ESPSend for programming.");
+        return;
       }
-
+#ifdef DEBUG
+      Serial.printf("ESPSend - Start try #%d \n", x);
+#endif
+      if (ESPSend())
+      {
+        break;
+      }
+    }
 #ifdef DEBUG_TIME
 #ifndef DEBUG
-      Serial.println(); // Used to separe the time from the data sent.
+    Serial.println(); // Used to separe the time from the data sent.
 #endif
-      Serial.printf("ESPSend - Time: %d ms \n", (millis() - espTimeTaken));
+    Serial.printf("ESPSend - Time: %d ms \n", (millis() - espTimeTaken));
 #endif
-    }
   }
 
 #ifdef DEBUG_TIME

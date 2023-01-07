@@ -5,6 +5,7 @@
 #include <cJSON.h>
 #include <cJSON_Utils.h>
 #include <ESPNowMessages.h>
+#include <Constants.h>
 
 cJSON *createJsonRoundedValue(float value)
 {
@@ -28,8 +29,16 @@ void printSensorboardJSON(Print *serialPrint, SensorboardV2Message message)
     cJSON *dataJson = cJSON_CreateObject();
     cJSON_AddItemToObject(mainJson, "Data", dataJson);
 
-    cJSON_AddItemToObject(dataJson, "temperature", createJsonRoundedValue(message.temperature));
-    cJSON_AddItemToObject(dataJson, "humidity", cJSON_CreateNumber(message.humidity));
+    if(message.temperature > SENSORBOARD_MIN_TEMP && message.temperature < SENSORBOARD_MAX_TEMP)
+    {
+      cJSON_AddItemToObject(dataJson, "temperature", createJsonRoundedValue(message.temperature));
+    }
+    
+    if(message.humidity > HUMIDITY_MIN_TEMP && message.humidity < HUMIDITY_MAX_TEMP)
+    {
+      cJSON_AddItemToObject(dataJson, "humidity", cJSON_CreateNumber(message.humidity));
+    }
+    
     cJSON_AddItemToObject(dataJson, "charging", cJSON_CreateNumber(message.charging));
     cJSON_AddItemToObject(dataJson, "battery_voltage", createJsonRoundedValue(message.batteryVoltage));
 

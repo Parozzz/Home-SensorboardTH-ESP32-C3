@@ -4,7 +4,6 @@
 #include <Arduino.h>
 
 #define ESPNOW_BUFFER_MAX 250
-
 class ESPNowBuffer
 {
 public:
@@ -20,7 +19,7 @@ public:
     uint8_t getByte(uint16_t index);
     uint16_t getWord(uint16_t index);
     uint32_t getDWord(uint16_t index);
-    uint8_t *getData(uint8_t offset, uint8_t len);
+    void getData(uint8_t offset, uint8_t len, uint8_t* data);
 
     void setByte(uint16_t index, uint8_t data);
     void setWord(uint16_t index, uint16_t data);

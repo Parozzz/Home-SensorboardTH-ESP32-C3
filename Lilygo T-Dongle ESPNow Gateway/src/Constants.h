@@ -1,0 +1,12 @@
+#ifndef DEFINE_H
+#define DEFINE_H
+
+#define SENSORBOARD_MIN_TEMP 0.0
+#define SENSORBOARD_MAX_TEMP 60.0
+
+#define HUMIDITY_MIN_TEMP 0
+#define HUMIDITY_MAX_TEMP 99
+
+
+
+#endif

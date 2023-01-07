@@ -45,17 +45,13 @@ struct RecvData
   bool inUse = false;
 };
 
-RecvData recvData[10] = {
+#define RECV_DATA_AMOUNT 5
+RecvData recvData[RECV_DATA_AMOUNT] = {
     RecvData(),
     RecvData(),
     RecvData(),
     RecvData(),
-    RecvData(),
-    RecvData(),
-    RecvData(),
-    RecvData(),
-    RecvData(),
-    RecvData(),
+    RecvData()
 };
 SensorboardV2Message sensorboardMessage;
 
@@ -69,7 +65,7 @@ void OnESPNowRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
   if (len > 3)
   {
-    for (int x = 0; x < 10; x++)
+    for (int x = 0; x < RECV_DATA_AMOUNT; x++)
     {
       RecvData *data = &recvData[x];
       if (!data->inUse)
@@ -262,7 +258,7 @@ void loop()
     digitalWrite(LED, ledState);
   }
 
-  for (int x = 0; x < 10; x++)
+  for (int x = 0; x < RECV_DATA_AMOUNT; x++)
   {
     RecvData *data = &recvData[x];
     if (data->inUse)

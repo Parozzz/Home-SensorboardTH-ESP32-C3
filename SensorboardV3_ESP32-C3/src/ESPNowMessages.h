@@ -4,10 +4,10 @@
 #include <Arduino.h>
 
 #include <ESPNowBuffer.h>
+#include <SanityChecks.h>
 
 enum BoardMessageType
 {
-  SENSOR_BOARD_MESSAGE = 1,
   REED_BOARD_MESSAGE = 2,
   SENSORBOARD_V2_MESSAGE = 3,
   KINETIC_SWITCH = 200,
@@ -24,6 +24,8 @@ public:
 
   uint8_t parseData(ESPNowBuffer *buffer);
   void writeData(ESPNowBuffer *buffer);
+  bool sanityCheck();
+  void printDebug(Print* print);
 
   uint8_t size()
   {
@@ -36,8 +38,8 @@ public:
     return _type;
   }
 
-  
   uint8_t id;
+
 private:
   uint8_t _type;
 };
@@ -49,6 +51,8 @@ public:
 
   uint8_t parseData(ESPNowBuffer *buffer);
   void writeData(ESPNowBuffer *buffer);
+  bool sanityCheck();
+  void printDebug(Print* print);
 
   uint8_t size()
   {
@@ -59,24 +63,6 @@ public:
   float batteryVoltage;
 };
 
-class SensorBoardMessage : public BatteryBoardMessage
-{
-public:
-  SensorBoardMessage() : BatteryBoardMessage(BoardMessageType::SENSOR_BOARD_MESSAGE) {}
-
-  uint8_t parseData(ESPNowBuffer *buffer);
-  void writeData(ESPNowBuffer *buffer);
-
-  uint8_t size()
-  {
-    return BatteryBoardMessage::size() + sizeof(lux) + sizeof(temperature) + sizeof(humidity);
-  }
-
-  float lux;
-  float temperature;
-  float humidity;
-};
-
 class SensorboardV2Message : public BatteryBoardMessage
 {
 public:
@@ -84,6 +70,8 @@ public:
 
   uint8_t parseData(ESPNowBuffer *buffer);
   void writeData(ESPNowBuffer *buffer);
+  bool sanityCheck();
+  void printDebug(Print* print);
 
   uint8_t size()
   {
@@ -101,6 +89,8 @@ public:
 
   uint8_t parseData(ESPNowBuffer *buffer);
   void writeData(ESPNowBuffer *buffer);
+  bool sanityCheck();
+  void printDebug(Print* print);
 
   uint8_t size()
   {
@@ -110,4 +100,28 @@ public:
   uint8_t state;
 };
 
+bool ESPNowDoSanityCheck(ESPNowBuffer *buffer);
+
+void ESPNowPrintDebug(ESPNowBuffer* buffer, Print* print);
+
 #endif
+
+/*
+class SensorBoardMessage : public BatteryBoardMessage
+{
+public:
+  SensorBoardMessage() : BatteryBoardMessage(BoardMessageType::SENSOR_BOARD_MESSAGE) {}
+
+  uint8_t parseData(ESPNowBuffer *buffer);
+  void writeData(ESPNowBuffer *buffer);
+
+  uint8_t size()
+  {
+    return BatteryBoardMessage::size() + sizeof(lux) + sizeof(temperature) + sizeof(humidity);
+  }
+
+  float lux;
+  float temperature;
+  float humidity;
+};
+*/

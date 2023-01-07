@@ -13,13 +13,13 @@ void ESPNowBuffer::copyData(const uint8_t *data, int len)
   _len = len;
   memcpy(_buffer, data, _len);
 
-  _checksumAdded = true; 
+  _checksumAdded = true;
 }
 
 uint8_t ESPNowBuffer::createChecksum()
 {
   uint8_t checksum = 0;
-  for (uint8_t x = 0; x < (_checksumAdded ? _len -1 : _len); x++)
+  for (uint8_t x = 0; x < (_checksumAdded ? _len - 1 : _len); x++)
   {
     checksum = checksum ^ _buffer[x];
   }
@@ -61,29 +61,27 @@ uint8_t ESPNowBuffer::getByte(uint16_t index)
 uint16_t ESPNowBuffer::getWord(uint16_t index)
 {
   uint16_t data = 0;
-  data |= (_buffer[0] & 0xFF) << 8;
-  data |= (_buffer[1] & 0xFF);
+  data |= _buffer[index + 0] << 8;
+  data |= _buffer[index + 1];
   return data;
 }
 
 uint32_t ESPNowBuffer::getDWord(uint16_t index)
 {
   uint32_t data = 0;
-  data |= (_buffer[0] & 0xFF) << 24;
-  data |= (_buffer[1] & 0xFF) << 16;
-  data |= (_buffer[2] & 0xFF) << 8;
-  data |= (_buffer[3] & 0xFF);
+  data |= _buffer[index + 0] << 24;
+  data |= _buffer[index + 1] << 16;
+  data |= _buffer[index + 2] << 8;
+  data |= _buffer[index + 3];
   return data;
 }
 
-uint8_t *ESPNowBuffer::getData(uint8_t offset, uint8_t len)
+void ESPNowBuffer::getData(uint8_t offset, uint8_t len, uint8_t* data)
 {
-  uint8_t data[len];
   for (int x = 0; x < len; x++)
   {
     data[x] = _buffer[offset + x];
   }
-  return data;
 }
 
 void ESPNowBuffer::setByte(uint16_t index, uint8_t data)

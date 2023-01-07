@@ -8,6 +8,16 @@
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
 
+#define ESP32_C3_MAC                   \
+  {                                    \
+    0xA0, 0x76, 0x4E, 0x4B, 0xC0, 0x70 \
+  }
+
+#define LILYGO_TDONGLE_MAC             \
+  {                                    \
+    0x58, 0xCF, 0x79, 0x32, 0xE1, 0xC2 \
+  }
+
 #define USB_IN_PIN GPIO_NUM_1
 
 #define ESP_READY_PIN GPIO_NUM_3
@@ -22,9 +32,9 @@
 #define ID_SW1 GPIO_NUM_5
 #define ID_SW2 GPIO_NUM_4
 
-// #define DEBUG
+//#define DEBUG
 
-// #define DEBUG_WITH_UART
+#define DEBUG_WITH_UART
 #ifdef DEBUG
 #ifdef DEBUG_WITH_UART
 Print *debug = &Serial0;
@@ -37,7 +47,7 @@ Print *debug = &Serial;
 // ESP_FAIL = -1
 #define ESP_WAIT -2
 
-const uint8_t slaveMAC[6] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
+const uint8_t slaveMAC[6] = LILYGO_TDONGLE_MAC;
 
 uint8_t recvMacAddress[6];
 ESPNowBuffer recvESPNowBuffer;
@@ -230,6 +240,26 @@ int8_t waitDataFromTINY()
   sendESPNowBuffer.copyData(buffer, bufferCount - TERMINATOR_BYTE_COUNT); // Remove the terminator bytes because i don't want them to be sent to ESPNOW
   sendESPNowBuffer.setInUse(true);
 
+#ifdef DEBUG
+    debug->print("HEX DUMP = ");
+    for (int x = 0; x < sendESPNowBuffer.getLen(); x++)
+    {
+      debug->printf("%.2x,", sendESPNowBuffer[x]);
+    }
+    debug->println();
+    ESPNowPrintDebug(&sendESPNowBuffer, debug);
+#endif
+
+  if (!sendESPNowBuffer.isChecksumValid() || !ESPNowDoSanityCheck(&sendESPNowBuffer))
+  {
+#ifdef DEBUG
+    bool checksumOK = sendESPNowBuffer.isChecksumValid();
+    bool sanityOK = ESPNowDoSanityCheck(&sendESPNowBuffer);
+    debug->printf("TINY - Invalid received data. Checksum=%s, Sanity=%s \n", checksumOK ? "OK" : "FAIL", sanityOK  ? "OK" : "FAIL");
+#endif
+    return ESP_FAIL;
+  }
+
   // This needs to be AFTER copying data, otherwise is useless.
   sendESPNowBuffer.setByte(1, readID()); // Byte 1 of a message is ALWAYS the id. Overriding it.
   sendESPNowBuffer.updateChecksum();
@@ -240,14 +270,9 @@ int8_t waitDataFromTINY()
                 sendESPNowBuffer.getChecksum(),
                 sendESPNowBuffer.createChecksum(),
                 sendESPNowBuffer.isChecksumValid() ? "VALID" : "INVALID");
-  for (int x = 0; x < sendESPNowBuffer.getLen(); x++)
-  {
-    debug->printf("%02x", sendESPNowBuffer[x]);
-  }
-  debug->println();
 #endif
 
-  delay(10);
+  delay(5);
   generateESPRDYImpulses(); // Generate RDY Impulses to indicate that the receiving is done correctly.
 
   return ESP_OK;
@@ -278,7 +303,7 @@ int8_t sendESPNowData()
     while (!recvESPNowBuffer.isInUse())
     {
       yield();
-      if (millis() - recvFeedbackTimestamp > 1150)
+      if (millis() - recvFeedbackTimestamp > 750)
       {
 #ifdef DEBUG
         debug->printf("ESPNow - Response timeout n.%D \n", (x + 1));
