@@ -1,12 +1,13 @@
 #include <ESPNowMessages.h>
 
 // ==============================
-//  READ DATA TO ESPNOW BUFFER
-// ==============================
-
+//  BASE MESSAGE
 uint8_t BaseMessage::parseData(ESPNowBuffer *buffer)
 {
-    uint8_t index = 1; // Start at 1 because the byte 0 is the board type the should be parsed before creating the class
+    uint8_t index = 1; // Start at 1 because the Byte0=MessageType and it is required at creation.
+
+    boardType = buffer->getByte(index);
+    index += 1;
 
     id = buffer->getByte(index);
     index += 1;
@@ -14,27 +15,26 @@ uint8_t BaseMessage::parseData(ESPNowBuffer *buffer)
     return index;
 }
 
-#define BOARD_TYPE_COUNT 4
-uint8_t boardTypes[BOARD_TYPE_COUNT] = {REED_BOARD_MESSAGE, SENSORBOARD_V2_MESSAGE, KINETIC_SWITCH, TESTBOARD};
+void BaseMessage::writeData(ESPNowBuffer *buffer)
+{
+    buffer->addByte(_messageType);
+    buffer->addByte(boardType);
+    buffer->addByte(id);
+}
 
 bool BaseMessage::sanityCheck()
 {
-    bool typeFound = false;
-    for (int x = 0; x < BOARD_TYPE_COUNT; x++)
-    {
-        if (_type == boardTypes[x])
-        {
-            typeFound = true;
-        }
-    }
-    return typeFound;
+    return boardType > 0 && _messageType > 0;
 }
 
 void BaseMessage::printDebug(Print *print)
 {
-    print->printf("Base- Type= %d, ID = %d \n", _type, id);
+    print->printf("Base- Board= %d, Message= %d, ID = %d \n", boardType, _messageType, id);
 }
+// ==============================
 
+// ==============================
+//  BATTERY BOARD MESSAGE
 uint8_t BatteryBoardMessage::parseData(ESPNowBuffer *buffer)
 {
     uint8_t index = BaseMessage::parseData(buffer);
@@ -46,6 +46,13 @@ uint8_t BatteryBoardMessage::parseData(ESPNowBuffer *buffer)
     index += 4;
 
     return index;
+}
+
+void BatteryBoardMessage::writeData(ESPNowBuffer *buffer)
+{
+    BaseMessage::writeData(buffer);
+    buffer->addByte(charging);
+    buffer->addDWord((uint32_t)(batteryVoltage * 100.0));
 }
 
 bool BatteryBoardMessage::sanityCheck()
@@ -62,18 +69,66 @@ void BatteryBoardMessage::printDebug(Print *print)
     print->print(batteryVoltage);
     print->printf(", Charging= %d \n", charging);
 }
+// ==============================
 
+// ==============================
+//  ERROR MESSAGE
+uint8_t ErrorMessage::parseData(ESPNowBuffer *buffer)
+{
+    uint8_t index = BatteryBoardMessage::parseData(buffer);
+
+    code1 = buffer->getWord(index);
+    index += 2;
+
+    code2 = buffer->getWord(index);
+    index += 2;
+
+    code3 = buffer->getWord(index);
+    index += 2;
+
+    return index;
+}
+
+void ErrorMessage::writeData(ESPNowBuffer *buffer)
+{
+    BatteryBoardMessage::writeData(buffer);
+    buffer->addWord(code1);
+    buffer->addWord(code2);
+    buffer->addWord(code3);
+}
+
+bool ErrorMessage::sanityCheck()
+{
+    return BatteryBoardMessage::sanityCheck();
+}
+
+void ErrorMessage::printDebug(Print *print)
+{
+    BatteryBoardMessage::printDebug(print);
+    print->printf("Error- code1= %d, code2= %d, code3= %d\n", code1, code2, code3);
+}
+// ==============================
+
+// ==============================
+//  SENSORBOARD V2 MESSAGE
 uint8_t SensorboardV2Message::parseData(ESPNowBuffer *buffer)
 {
     uint8_t index = BatteryBoardMessage::parseData(buffer);
 
-    temperature = ((float)buffer->getDWord(index)) / 100.0f;
+    temperature = buffer->getDWord(index) / 100.0f;
     index += 4;
 
     humidity = buffer->getByte(index);
     index += 1;
 
     return index;
+}
+
+void SensorboardV2Message::writeData(ESPNowBuffer *buffer)
+{
+    BatteryBoardMessage::writeData(buffer);
+    buffer->addDWord((uint32_t)(temperature * 100.0));
+    buffer->addByte(humidity);
 }
 
 bool SensorboardV2Message::sanityCheck()
@@ -91,7 +146,10 @@ void SensorboardV2Message::printDebug(Print *print)
     print->print(temperature);
     print->printf(", Humidity= %d \n", humidity);
 }
+// ==============================
 
+// ==============================
+//  REED BOARD MESSAGE
 uint8_t ReedBoardMessage::parseData(ESPNowBuffer *buffer)
 {
     uint8_t index = BatteryBoardMessage::parseData(buffer);
@@ -100,6 +158,12 @@ uint8_t ReedBoardMessage::parseData(ESPNowBuffer *buffer)
     index += 1;
 
     return index;
+}
+
+void ReedBoardMessage::writeData(ESPNowBuffer *buffer)
+{
+    BatteryBoardMessage::writeData(buffer);
+    buffer->addByte(state);
 }
 
 bool ReedBoardMessage::sanityCheck()
@@ -114,53 +178,28 @@ void ReedBoardMessage::printDebug(Print *print)
     print->printf("ReedBoard- State= %d \n", state);
 }
 // ==============================
-//  READ DATA TO ESPNOW BUFFER
-// ==============================
 
 // ==============================
-//  WRITE DATA TO ESPNOW BUFFER
-// ==============================
-void BaseMessage::writeData(ESPNowBuffer *buffer)
-{
-    buffer->addByte(_type);
-    buffer->addByte(id);
-}
-
-void BatteryBoardMessage::writeData(ESPNowBuffer *buffer)
-{
-    BaseMessage::writeData(buffer);
-    buffer->addByte(charging);
-    buffer->addDWord((uint32_t)(batteryVoltage * 100.0));
-}
-
-void SensorboardV2Message::writeData(ESPNowBuffer *buffer)
-{
-    BatteryBoardMessage::writeData(buffer);
-    buffer->addDWord((uint32_t)(temperature * 100.0));
-    buffer->addByte(humidity);
-}
-
-void ReedBoardMessage::writeData(ESPNowBuffer *buffer)
-{
-    BatteryBoardMessage::writeData(buffer);
-    buffer->addByte(state);
-}
-// ==============================
-//  WRITE DATA TO ESPNOW BUFFER
-// ==============================
-
+//  OTHERS
+/*
 bool ESPNowDoSanityCheck(ESPNowBuffer *buffer)
 {
     uint8_t type = buffer->getByte(0); // First byte is always the type. Second byte is the ID.
-    if (type == BoardMessageType::REED_BOARD_MESSAGE)
+    if (type == BoardType::REED_BOARD_MESSAGE)
     {
         ReedBoardMessage msg;
         msg.parseData(buffer);
         return msg.sanityCheck();
     }
-    else if (type == BoardMessageType::SENSORBOARD_V2_MESSAGE)
+    else if (type == BoardType::SENSORBOARD_V2_MESSAGE)
     {
         SensorboardV2Message msg;
+        msg.parseData(buffer);
+        return msg.sanityCheck();
+    }
+    else if (type == BoardType::ERROR_MESSAGE)
+    {
+        ErrorMessage msg;
         msg.parseData(buffer);
         return msg.sanityCheck();
     }
@@ -173,16 +212,27 @@ bool ESPNowDoSanityCheck(ESPNowBuffer *buffer)
 void ESPNowPrintDebug(ESPNowBuffer *buffer, Print *print)
 {
     uint8_t type = buffer->getByte(0); // First byte is always the type. Second byte is the ID.
-    if (type == BoardMessageType::REED_BOARD_MESSAGE)
+    if (type == BoardType::REED_BOARD_MESSAGE)
     {
         ReedBoardMessage msg;
         msg.parseData(buffer);
         msg.printDebug(print);
     }
-    else if (type == BoardMessageType::SENSORBOARD_V2_MESSAGE)
+    else if (type == BoardType::SENSORBOARD_V2_MESSAGE)
     {
         SensorboardV2Message msg;
         msg.parseData(buffer);
         msg.printDebug(print);
     }
-}
+    else if (type == BoardType::ERROR_MESSAGE)
+    {
+        ErrorMessage msg;
+        msg.parseData(buffer);
+        msg.printDebug(print);
+    }
+    else
+    {
+        print->printf("Message not found with type= %d \n", type);
+    }
+}*/
+// ==============================

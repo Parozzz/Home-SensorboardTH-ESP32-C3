@@ -21,8 +21,9 @@
 #include <ESPNowMessages.h>
 #include <ESPNowJsonMessages.h>
 #include <TDongleScreen.h>
+#include <ProtocolConstant.h>
 
-//#define SERIAL_DEBUG
+// #define SERIAL_DEBUG
 
 #define WIFI_CHANNEL 7
 
@@ -51,9 +52,10 @@ RecvData recvData[RECV_DATA_AMOUNT] = {
     RecvData(),
     RecvData(),
     RecvData(),
-    RecvData()
-};
+    RecvData()};
+
 SensorboardV2Message sensorboardMessage;
+ErrorMessage errorMessage = ErrorMessage(BoardType::INVALID_BOARD);
 
 int8_t sendESPNowStatus;
 void OnESPNowSend(const uint8_t *mac_addr, esp_now_send_status_t status)
@@ -187,11 +189,22 @@ void parseReceivedData(RecvData *data)
     return;
   }
 
-  switch (data->espnowBuffer[0])
+  // if is an error, i don't care about the type of the board. It will be written anyway in the message.
+  if (data->espnowBuffer[PROTOCOL_MESSAGE_TYPE_BYTE] == MessageType::ERROR_MESSAGE)
   {
-  case BoardMessageType::SENSORBOARD_V2_MESSAGE:
+    errorMessage.parseData(&data->espnowBuffer);
+    screen.printf("%d-ERR BT%d ID%d B%.2f C1%d",
+                  displayCounter++,
+                  errorMessage.boardType,
+                  errorMessage.id,
+                  errorMessage.batteryVoltage,
+                  errorMessage.code1);
+    printErrorJSON(&usbSerial, errorMessage);
+  }
+  else if (data->espnowBuffer[PROTOCOL_BOARD_TYPE_BYTE] == BoardType::SENSOR_BOARD)
+  {
     sensorboardMessage.parseData(&data->espnowBuffer);
-    screen.printf("%d-SBV2 ID%d B%.2f C%d T%.2f H%d",
+    screen.printf("%d-SENS ID%d B%.2f C%d T%.2f H%d",
                   displayCounter++,
                   sensorboardMessage.id,
                   sensorboardMessage.batteryVoltage,
@@ -199,8 +212,9 @@ void parseReceivedData(RecvData *data)
                   sensorboardMessage.temperature,
                   sensorboardMessage.humidity);
     printSensorboardJSON(&usbSerial, sensorboardMessage);
-    break;
-  default:
+  }
+  else
+  {
     screen.printf("%d-Type err. R=%d",
                   displayCounter++,
                   data->espnowBuffer[0]);

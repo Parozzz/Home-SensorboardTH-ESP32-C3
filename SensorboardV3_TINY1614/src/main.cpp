@@ -8,6 +8,7 @@
 #include <EEPROM.h>
 #include <ESPNowMessages.h>
 #include <ESPNowBuffer.h>
+#include <ErrorCodes.h>
 
 #define TIME_MINUTE_SENDS 5             // Minutes between times (Not precise, maybe +-30s)
 #define TIME_HOURS_LOW_BATTERY_SENDS 12 // Hours between sleeps when low battery is detected
@@ -16,7 +17,7 @@
 #define HUMIDITY_MIN_DIFF 1.35   // Temperature difference to send values to ESP
 
 #define SHT31_READING_TRIALS 3
-#define ESP32_READING_TRIALS 3
+#define ESP32_WRITING_TRIALS 3
 
 #define SDA_PIN PIN_PB1
 #define SCL_PIN PIN_PB0
@@ -42,8 +43,8 @@
 #define TERMINATOR_BYTE 0xFE
 #define TERMINATOR_BYTE_COUNT 3
 
-//#define DEBUG
-//#define DEBUG_TIME
+#define DEBUG
+#define DEBUG_TIME
 
 SHT31 sht31;
 float batteryADC0FullScale = 1.0;
@@ -368,7 +369,7 @@ bool waitESPRDYImpulses(uint32_t timeoutTime)
   uint32_t timeoutTimestamp = millis();
 
   uint8_t readyImpulseCount = 0;
-  uint8_t oldImpulse = false;
+  uint8_t oldImpulse = true; // ESP START WITH PIN HIGH!
   while (readyImpulseCount < ESPRDY_DONE_IMPULSES)
   {
     if (millis() - timeoutTimestamp > timeoutTime)
@@ -380,7 +381,7 @@ bool waitESPRDYImpulses(uint32_t timeoutTime)
     }
 
     uint8_t impulse = digitalRead(ESP_READY_PIN);
-    if (impulse && !oldImpulse) // Only care about rising edge
+    if (!impulse && oldImpulse) // Only care about falling edge
     {
       readyImpulseCount++;
     }
@@ -453,6 +454,7 @@ bool ESPSend()
 bool firstBoot = false;
 bool batteryCalibration = false;
 bool stopReadContinously = false;
+uint16_t errorCode1, errorCode2, errorCode3 = 0;
 
 uint32_t usbPluggedTimestamp = 0;
 
@@ -467,7 +469,7 @@ bool isCharging()
 }
 
 SensorboardV2Message message;
-bool prepareESPNowBuffer(float temperature, float humidity, float batteryVoltage)
+bool prepareReadingESPNowBuffer(float temperature, float humidity, float batteryVoltage)
 {
   message.temperature = temperature;
   message.humidity = lround(ceil(humidity));
@@ -481,7 +483,7 @@ bool prepareESPNowBuffer(float temperature, float humidity, float batteryVoltage
   if (message.sanityCheck())
   {
 #ifdef DEBUG
-    Serial.println("ESPNowBuffer - Sanity Check OK");
+    Serial.println("ESPNowBuffer - Reading Sanity Check OK");
 #endif
     recvESPNowBuffer.clear();
     message.writeData(&recvESPNowBuffer);
@@ -490,13 +492,41 @@ bool prepareESPNowBuffer(float temperature, float humidity, float batteryVoltage
   }
 
 #ifdef DEBUG
-  Serial.println("ESPNowBuffer - Sanity Check FAIL");
+  Serial.println("ESPNowBuffer - Reading Sanity Check FAIL");
+#endif
+  return false;
+}
+
+ErrorMessage errorMessage = ErrorMessage(BoardType::SENSOR_BOARD);
+bool prepareErrorESPNowBuffer(uint16_t errorCode, float batteryVoltage)
+{
+  errorMessage.code1 = errorCode;
+  errorMessage.batteryVoltage = batteryVoltage;
+
+#ifdef DEBUG
+  errorMessage.printDebug(&Serial);
+#endif
+
+  if (errorMessage.sanityCheck())
+  {
+#ifdef DEBUG
+    Serial.println("ESPNowBuffer - Error Sanity Check OK");
+#endif
+    recvESPNowBuffer.clear();
+    errorMessage.writeData(&recvESPNowBuffer);
+    recvESPNowBuffer.updateChecksum();
+    return true;
+  }
+
+#ifdef DEBUG
+  Serial.println("ESPNowBuffer - Error Sanity Check FAIL");
 #endif
   return false;
 }
 
 void loop()
 {
+#pragma region Calibrations and Setup
   if (isCharging())
   {
     if (!firstBoot)
@@ -568,7 +598,8 @@ void loop()
     }
 
     // Do this after the serial stuff so it can be done
-    if (!digitalRead(ESP_PROG_PIN)) // If the prog button is pressed, the tiny is FREEZED whatever is doing.
+    // If the prog button is pressed, any operation is halted to avoid disturbing the esp.
+    if (!digitalRead(ESP_PROG_PIN))
     {
       Serial.println("ESPProg - Button pressed.");
       while (!digitalRead(ESP_PROG_PIN)) // Wait for the button to be released.
@@ -601,25 +632,18 @@ void loop()
     stopReadContinously = false;
     batteryCalibration = false;
   }
+#pragma endregion
 
 #ifdef DEBUG_TIME
   uint32_t totalTimestamp = millis();
 #endif
 
   float batteryVoltage = readBatteryVoltage();
-  if (batteryVoltage < 0) // Valore invalido. Invio valore jolly.
+  if (!isCharging() && batteryVoltage < BATT_VOLTAGE_VERY_LOW)
   {
-    batteryVoltage = 20.0;
-  }
-  else if (!isCharging() && batteryVoltage < BATT_VOLTAGE_VERY_LOW)
-  {
-    if (!lowBatterySent)
+    if (!lowBatterySent && prepareErrorESPNowBuffer(ERROR_BATTERY_LOW, batteryVoltage))
     {
-      prepareESPNowBuffer(0.0, 0.0, batteryVoltage);
-      if (ESPSend())
-      {
-        lowBatterySent = true;
-      }
+      lowBatterySent = ESPSend();
     }
 
     sleep(true);
@@ -629,13 +653,22 @@ void loop()
   lowBatterySent = false;
   // If i am updating the battery factor, i do not want all the stuff for the ESP or the sensor.
   SHT31Reading sensorData = readSensorData();
-  if (sensorData.valid && validateSensorData(sensorData, isCharging()) && prepareESPNowBuffer(sensorData.temperature, sensorData.humidity, batteryVoltage))
+  if (!sensorData.valid)
+  {
+    prepareErrorESPNowBuffer(ERROR_READING_TH_SENSOR, batteryVoltage);
+    ESPSend();
+
+    sleep(true);
+    return;
+  }
+  else if (validateSensorData(sensorData, isCharging()) && prepareReadingESPNowBuffer(sensorData.temperature, sensorData.humidity, batteryVoltage))
   {
 #ifdef DEBUG_TIME
     uint32_t espTimeTaken = millis();
 #endif
-    for (int x = 0; x < ESP32_READING_TRIALS; x++)
+    for (int x = 0; x < ESP32_WRITING_TRIALS; x++)
     {
+      // Inside the loop in case is pressed after one trial is done to avoid waiting timeouts.
       if (isCharging() && !digitalRead(ESP_PROG_PIN))
       {
         Serial.println("Stopping ESPSend for programming.");

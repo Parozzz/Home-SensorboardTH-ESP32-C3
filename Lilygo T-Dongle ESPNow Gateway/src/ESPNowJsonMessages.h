@@ -23,7 +23,8 @@ void printUnformatted(Print *serialPrint, cJSON* json)
 void printSensorboardJSON(Print *serialPrint, SensorboardV2Message message)
 {
     cJSON *mainJson = cJSON_CreateObject();
-    cJSON_AddItemToObject(mainJson, "BoardType", cJSON_CreateNumber(message.getType()));
+    cJSON_AddItemToObject(mainJson, "MessageType", cJSON_CreateNumber(message.getMessageType()));
+    cJSON_AddItemToObject(mainJson, "BoardType", cJSON_CreateNumber(message.boardType));
     cJSON_AddItemToObject(mainJson, "BoardID", cJSON_CreateNumber(message.id));
 
     cJSON *dataJson = cJSON_CreateObject();
@@ -45,6 +46,26 @@ void printSensorboardJSON(Print *serialPrint, SensorboardV2Message message)
     printUnformatted(serialPrint, mainJson);
     cJSON_Delete(mainJson);
 }
+
+void printErrorJSON(Print *serialPrint, ErrorMessage message)
+{
+    cJSON *mainJson = cJSON_CreateObject();
+    cJSON_AddItemToObject(mainJson, "MessageType", cJSON_CreateNumber(message.getMessageType()));
+    cJSON_AddItemToObject(mainJson, "BoardType", cJSON_CreateNumber(message.boardType));
+    cJSON_AddItemToObject(mainJson, "BoardID", cJSON_CreateNumber(message.id));
+
+    cJSON *dataJson = cJSON_CreateObject();
+    cJSON_AddItemToObject(mainJson, "Data", dataJson);
+
+    cJSON_AddItemToObject(dataJson, "code1", createJsonRoundedValue(message.code1));
+    cJSON_AddItemToObject(dataJson, "code2", createJsonRoundedValue(message.code2));
+    cJSON_AddItemToObject(dataJson, "code3", createJsonRoundedValue(message.code3));
+    cJSON_AddItemToObject(dataJson, "battery_voltage", createJsonRoundedValue(message.batteryVoltage));
+
+    printUnformatted(serialPrint, mainJson);
+    cJSON_Delete(mainJson);
+}
+
 
 
 

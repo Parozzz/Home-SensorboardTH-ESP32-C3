@@ -7,6 +7,7 @@
 #include <ESPNowMessages.h>
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
+#include <ProtocolConstant.h>
 
 #define ESP32_C3_MAC                   \
   {                                    \
@@ -250,7 +251,7 @@ int8_t waitDataFromTINY()
     ESPNowPrintDebug(&sendESPNowBuffer, debug);
 #endif
 
-  if (!sendESPNowBuffer.isChecksumValid() || !ESPNowDoSanityCheck(&sendESPNowBuffer))
+  if (!sendESPNowBuffer.isChecksumValid())
   {
 #ifdef DEBUG
     bool checksumOK = sendESPNowBuffer.isChecksumValid();
@@ -261,7 +262,7 @@ int8_t waitDataFromTINY()
   }
 
   // This needs to be AFTER copying data, otherwise is useless.
-  sendESPNowBuffer.setByte(1, readID()); // Byte 1 of a message is ALWAYS the id. Overriding it.
+  sendESPNowBuffer.setByte(PROTOCOL_ID_BYTE, readID()); //Overriding the id since it is read by the esp32 (Because not enough pin on ESP32).
   sendESPNowBuffer.updateChecksum();
 
 #ifdef DEBUG
@@ -278,6 +279,7 @@ int8_t waitDataFromTINY()
   return ESP_OK;
 }
 
+//SEND DATA TO THE RECEIVER SLAVE AND WAIT FOR A FEEDBACK MESSAGE FROM IT.
 int8_t sendESPNowData()
 {
 #ifdef DEBUG
